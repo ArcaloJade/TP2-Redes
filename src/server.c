@@ -1,37 +1,77 @@
-/* Servidor extremadamente simple:
- * 1. Abre listener 0.0.0.0:20251
- * 2. Por cada cliente que llega, hace fork()
- * 3. El hijo envía bloques de 1 MiB durante 10 s y termina */
-#include "common.h"
+# include "header.h"
 
-/* ---------- hijo: genera tráfico de bajada ---------- */
-void download_worker(int cli_fd)
-{
-    static uint8_t chunk[1<<20] = {0};   /* 1 MiB inicializado en cero   */
-    double t0 = now_sec();               /* hora de arranque             */
+void *connection_handler(void *arg) {
+    int sock = *(int *)arg;
+    free(arg);
 
-    while (now_sec() - t0 < TEST_DURATION + 2) /* +2 s de colchón         */
-        write(cli_fd, chunk, sizeof chunk);     /* bombardeo de bytes      */
+    char buffer[BUF_SIZE];
+    memset(buffer, 'A', BUF_SIZE);
 
-    close(cli_fd);                               /* cierra conexión TCP     */
-    exit(0);                                     /* termina el proceso hijo */
+    time_t start_time = time(NULL);
+
+    while (1) {
+        ssize_t sent = send(sock, buffer, BUF_SIZE, 0);
+        if (sent <= 0) break;
+
+        if (time(NULL) - start_time >= MAX_CONNECTION_TIME)
+            break;
+    }
+
+    close(sock);
+    pthread_exit(NULL);
 }
 
-/* ---------- proceso principal ---------- */
-int main(void)
-{
-    int lfd = tcp_listen(PORT_DOWNLOAD, 128);   /* abre puerto 20251 */
-    if (lfd < 0) exit(1);
+int main() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int addrlen = sizeof(address);
 
-    for (;;)                                    /* loop infinito     */
-    {
-        int cfd = accept(lfd, NULL, NULL);      /* espera cliente */
-        if (cfd < 0) continue;                  /* error espurio  */
+    signal(SIGPIPE, SIG_IGN); // Evita que el servidor termine con un write a socket cerrado
 
-        if (!fork()) {                          /* hijo = 0 → lógica */
-            close(lfd);                         /* hijo no usa listener */
-            download_worker(cfd);
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(SERVER_PORT_1);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    if (listen(server_fd, 128) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server listening on port %d...\n", SERVER_PORT_1);
+
+    while (1) {
+        new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+        if (new_socket < 0) {
+            perror("accept");
+            continue;
         }
-        close(cfd);                             /* padre libera fd y    */
-    }                                           /* vuelve a aceptar     */
+
+        int *client_sock = malloc(sizeof(int));
+        *client_sock = new_socket;
+
+        pthread_t thread_id;
+        if (pthread_create(&thread_id, NULL, connection_handler, client_sock) != 0) {
+            perror("pthread_create");
+            close(new_socket);
+            free(client_sock);
+        }
+
+        pthread_detach(thread_id); // liberar recursos automáticamente
+    }
+
+    close(server_fd);
+    return 0;
 }

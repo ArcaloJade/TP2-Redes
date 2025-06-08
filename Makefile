@@ -27,7 +27,7 @@
 CC = gcc
 CFLAGS = -Wall -pthread
 
-SRCDIR = srclolo
+SRCDIR = src
 BINDIR = .
 
 TARGETS = $(BINDIR)/server $(BINDIR)/client
