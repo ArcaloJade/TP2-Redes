@@ -21,5 +21,5 @@ clean:
 ## Forma de probarlo:
 # $ make                     # compila ambos binarios
 # $ ./tpd-server &           # lanza el servidor (queda en background)
-# $ ./tpd-client 127.0.0.1   # mide bajada contra loopback
+# $ ./tpd-client 127.0.0.1   # mide bajada contra loopback (Cambiar 127.0.0.1 por la IP del servidor para probar por red real.)
 # Download: 800.00 Mb/s      # ejemplo
