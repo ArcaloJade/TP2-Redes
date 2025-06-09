@@ -42,3 +42,8 @@ void *download_thread(void *arg);
 
 // server.c
 void *connection_handler(void *arg);
+
+typedef struct {
+    int sock;
+    struct sockaddr_in addr;  // ← para identificar IP del cliente
+} client_info;
