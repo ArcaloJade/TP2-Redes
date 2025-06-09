@@ -19,6 +19,7 @@
 #define SERVER_PORT_1 20251
 #define SERVER_PORT_2 20252
 #define BUF_SIZE 4096
+#define NUM_CONN 10
 #define T 20
 #define MAX_CONNECTION_TIME (T + 3)
 

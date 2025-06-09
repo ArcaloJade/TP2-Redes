@@ -56,25 +56,26 @@ void *download_thread(void *arg) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Uso: %s <N conexiones>\n", argv[0]);
+    if (argc != 1) {
+        fprintf(stderr, "no necesita argumentos\n");
         return 1;
     }
 
-    int N = atoi(argv[1]);
-    pthread_t threads[N];
-    download_thread_info infos[N];
+    // int N = atoi(argv[1]);
+    
+    pthread_t threads[NUM_CONN];
+    download_thread_info infos[NUM_CONN];
 
     struct timeval t0, t1;
     gettimeofday(&t0, NULL);
 
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < NUM_CONN; ++i) {
         infos[i].id = i;
         infos[i].bytes_received = 0;
         pthread_create(&threads[i], NULL, download_thread, &infos[i]);
     }
 
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < NUM_CONN; ++i) {
         pthread_join(threads[i], NULL);
     }
 
