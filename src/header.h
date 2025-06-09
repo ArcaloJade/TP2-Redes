@@ -41,8 +41,10 @@ void *download_thread(void *arg);
 
 
 // server.c
-void *connection_handler(void *arg);
-
+void *download_connections(void *arg);
+void *upload_connections(void *arg);
+void *connection_handler_download(void *arg);
+void *connection_handler_upload(void *arg);
 typedef struct {
     int sock;
     struct sockaddr_in addr;  // ← para identificar IP del cliente
