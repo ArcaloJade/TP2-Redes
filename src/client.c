@@ -3,7 +3,8 @@
 long long total_bytes = 0;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
-void medir_rtt() {
+double medir_rtt() {
+    double avg_rtt = 0.0;
     int udp_sock;
     struct sockaddr_in serv_addr;
     uint8_t msg[4], recv_buf[4];
@@ -51,11 +52,12 @@ void medir_rtt() {
 
         double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
         printf("RTT %d: %.3f ms\n", i + 1, rtt);
-
+        avg_rtt += rtt;
         sleep(1);
     }
-
+    avg_rtt /= 3.0;
     close(udp_sock);
+    return avg_rtt;
 }
 
 
@@ -222,9 +224,25 @@ int main(int argc, char *argv[]) {
         return 1;
     }   
 
+
+    char timestamp[20]; // YYYY-MM-DD HH:MM:SS -> 19 chars + \0
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", t);
+
+    printf("\"timestamp\": \"%s\"\n", timestamp);
+
     // int N = atoi(argv[1]);
     srand(time(NULL));  // semilla para rand()
-    medir_rtt();        // hace 3 mediciones de RTT por UDP
+
+    // Etapa Idle
+    printf("== Etapa IDLE ==\n");
+    double idle_rtt = medir_rtt() / 1000.0;        // mediciones de RTT en etapa idle
+
+    //-----------download main-----------
+    printf("== Etapa DOWNLOAD ==\n");
+    double dwld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de download
 
     pthread_t download_threads[NUM_CONN];
     download_thread_info infos[NUM_CONN];
@@ -251,7 +269,12 @@ int main(int argc, char *argv[]) {
     printf("Elapsed time: %.3f seconds\n", elapsed);
     printf("Download throughput: %.3f Mbps\n", throughput);
 
+    double dwld_throughput = throughput * 1000000.0;  // Guardar throughput de descarga
+
     //-----------upload main-----------
+    printf("== Etapa UPLOAD ==\n");
+    double upld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de upload
+
     pthread_t upload_threads[NUM_CONN];
     upload_thread_info up_infos[NUM_CONN];
 
@@ -273,8 +296,77 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_CONN; ++i) {
         pthread_join(upload_threads[i], NULL);
     }
+
+    double total_bytes_sent = 0;
+    for (int i = 0; i < NUM_CONN; ++i) {
+        total_bytes_sent += up_infos[i].bytes_sent;
+    }
+
+    double upld_throughput = 8.0 * total_bytes_sent / elapsed / 1e6 * 1000000.0;
+
     // Pequeño retardo para asegurarnos de que el servidor haya guardado todo
     sleep(1);
     query_upload_results(test_id);
+
+
+    char src_ip[INET_ADDRSTRLEN];
+    {
+        int s = socket(AF_INET, SOCK_DGRAM, 0);
+        struct sockaddr_in tmp;
+        socklen_t len = sizeof(tmp);
+        memset(&tmp, 0, sizeof(tmp));
+        tmp.sin_family = AF_INET;
+        tmp.sin_addr.s_addr = inet_addr(SERVER_IP); // IP destino
+        tmp.sin_port = htons(53);                    // puerto destino (DNS típico)
+        connect(s, (struct sockaddr*)&tmp, sizeof(tmp));
+        getsockname(s, (struct sockaddr*)&tmp, &len);
+        inet_ntop(AF_INET, &tmp.sin_addr, src_ip, sizeof(src_ip));
+        close(s);
+    }
+    printf("Mi IP local es: %s\n", src_ip);
+
+
+    char json[512];
+    snprintf(json, sizeof(json),
+        "{"
+        "\"src_ip\": \"%s\", "
+        "\"dst_ip\": \"%s\", "
+        "\"timestamp\": \"%s\", "
+        "\"avg_bw_download_bps\": %.0f, "
+        "\"avg_bw_upload_bps\": %.0f, "
+        "\"num_conns\": %d, "
+        "\"rtt_idle\": %.3f, "
+        "\"rtt_download\": %.3f, "
+        "\"rtt_upload\": %.3f"
+        "}",
+        src_ip, SERVER_IP, timestamp,
+        dwld_throughput, upld_throughput,
+        NUM_CONN,
+        idle_rtt, dwld_rtt, upld_rtt
+    );
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return 1;
+    }
+
+    struct sockaddr_in dest_addr;
+    memset(&dest_addr, 0, sizeof(dest_addr));
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(SERVER_PORT_1);
+    inet_pton(AF_INET, SERVER_IP, &dest_addr.sin_addr);
+
+    ssize_t sent = sendto(sock, json, strlen(json), 0,
+                          (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (sent < 0) {
+        perror("sendto");
+        close(sock);
+        return 1;
+    }
+
+    printf("JSON enviado (%ld bytes):\n%s\n", sent, json);
+    close(sock);
+
     return 0;
 }

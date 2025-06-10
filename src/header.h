@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <endian.h>
+// #include <endian.h>
 #include <stdint.h>
 #include <time.h>
 #include <arpa/inet.h>  /* htonl */
@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <signal.h>
 
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "192.168.1.23"
 #define SERVER_PORT_1 20251
 #define SERVER_PORT_2 20252
 #define BUF_SIZE 4096
@@ -43,7 +43,7 @@ typedef struct {
     struct sockaddr_in addr;  // ← para identificar IP del cliente
 } client_info;
 
-void medir_rtt(void);
+double medir_rtt(void);
 void *download_thread(void *arg);
 void *upload_thread(void *arg);
 
