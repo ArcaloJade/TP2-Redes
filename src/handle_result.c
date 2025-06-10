@@ -7,6 +7,7 @@
 #include <string.h>     /* memcpy */
 #include <ctype.h>     /* needed for isprint() */
 #include <errno.h>
+#include "header.h"
 
 #ifndef HEXDUMP_COLS
 #define HEXDUMP_COLS 16
@@ -23,108 +24,105 @@ void hexdump(void *mem, unsigned int len);
 #define E_INV_LINE_FORMAT -5
 #define E_NUMBER_PARSE    -6
 
-struct BW_result {
-  uint32_t id_measurement;
-  uint64_t conn_bytes[NUM_CONN];
-  double conn_duration[NUM_CONN];
-};
 
-void printBwResult(struct BW_result bw_result);
-int packResultPayload(struct BW_result bw_result, void *buffer, int buffer_size);
-int unpackResultPayload(struct BW_result *bw_result, void *buffer, int buffer_size);
 
-int main(int argc, char *argv[])
-{
-  struct BW_result bw_result;
+void printBwResult(BW_result bw_result);
+int packResultPayload(BW_result bw_result, void *buffer, int buffer_size);
+int unpackResultPayload(BW_result *bw_result, void *buffer, int buffer_size);
 
-  union {
-    uint32_t u32;
-    uint8_t arr[4];
-  } id_measurement;
 
-  /* Generate a random measurement ID*/
-  /*  seed initialization */
-  srandom(time(NULL));
-  id_measurement.u32 = (uint32_t) random();
-  /* Make sure MSB is not FF */
-  if (id_measurement.arr[3] == 0xff) {
-    id_measurement.arr[3] = id_measurement.arr[3] & 0x7f;
-  }
-  id_measurement.arr[0] = 0xc9;
-  id_measurement.arr[1] = 0xaf;
-  id_measurement.arr[2] = 0x3a;
-  id_measurement.arr[3] = 0x42;
+// int main(int argc, char *argv[])
+// {
+//   BW_result bw_result;
+
+//   union {
+//     uint32_t u32;
+//     uint8_t arr[4];
+//   } id_measurement;
+
+//   /* Generate a random measurement ID*/
+//   /*  seed initialization */
+//   srandom(time(NULL));
+//   id_measurement.u32 = (uint32_t) random();
+//   /* Make sure MSB is not FF */
+//   if (id_measurement.arr[3] == 0xff) {
+//     id_measurement.arr[3] = id_measurement.arr[3] & 0x7f;
+//   }
+//   id_measurement.arr[0] = 0xc9;
+//   id_measurement.arr[1] = 0xaf;
+//   id_measurement.arr[2] = 0x3a;
+//   id_measurement.arr[3] = 0x42;
     
-  /* Print id as individual byte from lower to higher addresses */
-  for (int i=0 ; i < sizeof(id_measurement.u32); i++ ) {
-    /* i=0 Lowest-address byte */
-    printf("id.arr[%d] = 0x%02x\n", i, id_measurement.arr[i]);
-  }
-  printf("id.u32 = 0x%x\n\n", id_measurement.u32);
+//   /* Print id as individual byte from lower to higher addresses */
+//   for (int i=0 ; i < sizeof(id_measurement.u32); i++ ) {
+//     /* i=0 Lowest-address byte */
+//     printf("id.arr[%d] = 0x%02x\n", i, id_measurement.arr[i]);
+//   }
+//   printf("id.u32 = 0x%x\n\n", id_measurement.u32);
   
-  bw_result.id_measurement = id_measurement.u32;
-  /* Populate with some example values */
-  for (int i=0; i< NUM_CONN; i++) {
-    bw_result.conn_bytes[i] = 1000000000+i*100;
-    bw_result.conn_duration[i] = 20.0 + (i*1.0)/100;
-  }
+//   bw_result.id_measurement = id_measurement.u32;
+//   /* Populate with some example values */
+//   for (int i=0; i< NUM_CONN; i++) {
+//     bw_result.conn_bytes[i] = 1000000000+i*100;
+//     bw_result.conn_duration[i] = 20.0 + (i*1.0)/100;
+//   }
   
-  printf("Results to be packed\n");
-  printBwResult(bw_result);
+//   printf("Results to be packed\n");
+//   printBwResult(bw_result);
 
-  char my_buffer[200];
-  int nbytes;
-  nbytes = packResultPayload(bw_result,  my_buffer, (int) sizeof(my_buffer));
-  printf("nbytes = %d\n", nbytes);
-  if (nbytes > 0) {
+//   char my_buffer[200];
+//   int nbytes;
+//   nbytes = packResultPayload(bw_result,  my_buffer, (int) sizeof(my_buffer));
+//   printf("nbytes = %d\n", nbytes);
+//   if (nbytes > 0) {
 
-    printf("Hexdump of packed results\n");
-    // Tests
-    // my_buffer[13] = 'c'; // uncomment to generate number parse error
-    // my_buffer[14] = 'x'; // uncomment to generate invalid format line error
-    // my_buffer[0x15] = '0'; my_buffer[0x20] = '0';  my_buffer[0x23] = '5';// uncomment to generate not enough data
-    // my_buffer[0x15] = '0'; my_buffer[0x20] = '0';  my_buffer[0x23] = '5'; my_buffer[0x27] = '4';// uncomment to generate Line too long
-     hexdump(my_buffer, nbytes);
-  }
+//     printf("Hexdump of packed results\n");
+//     // Tests
+//     // my_buffer[13] = 'c'; // uncomment to generate number parse error
+//     // my_buffer[14] = 'x'; // uncomment to generate invalid format line error
+//     // my_buffer[0x15] = '0'; my_buffer[0x20] = '0';  my_buffer[0x23] = '5';// uncomment to generate not enough data
+//     // my_buffer[0x15] = '0'; my_buffer[0x20] = '0';  my_buffer[0x23] = '5'; my_buffer[0x27] = '4';// uncomment to generate Line too long
+//      hexdump(my_buffer, nbytes);
+//   }
 
-  /* Structure for parsed results */
-  struct BW_result rcv_bw_result;
-  int parsed_bytes = 0;
-  parsed_bytes = unpackResultPayload(&rcv_bw_result, my_buffer, nbytes);
-  /* Print received results */
-  if (parsed_bytes > 0 ) {
-    printf("\nUnpacked results");
-    printBwResult(rcv_bw_result);
-    printf("parsed bytes %d\n", parsed_bytes);
-  }
-  else {
-    switch (parsed_bytes) {
-      case E_MINIMUM_DATA:
-        printf("Too few data. Not even for measurement id\n");
-        break;
-      case E_NOT_ENOUGH_DATA:
-        printf("Too few data for connection measurement data\n");
-        break;
-      case E_NO_NEW_LINE:    
-        printf("No new line found before reaching buffer end\n");
-        break;
-      case E_LINE_TOO_LONG:  
-        printf("Line too long to be parsed\n");
-        break;
-      case E_INV_LINE_FORMAT:
-        printf("Invalid format line\n");
-        break;
-      case E_NUMBER_PARSE:   
-        printf("Error while parsing number\n");
-        break;
-    }
-  }
+//   /* Structure for parsed results */
+//   BW_result rcv_bw_result;
+//   int parsed_bytes = 0;
+//   parsed_bytes = unpackResultPayload(&rcv_bw_result, my_buffer, nbytes);
+//   /* Print received results */
+//   if (parsed_bytes > 0 ) {
+//     printf("\nUnpacked results");
+//     printBwResult(rcv_bw_result);
+//     printf("parsed bytes %d\n", parsed_bytes);
+//   }
+//   else {
+//     switch (parsed_bytes) {
+//       case E_MINIMUM_DATA:
+//         printf("Too few data. Not even for measurement id\n");
+//         break;
+//       case E_NOT_ENOUGH_DATA:
+//         printf("Too few data for connection measurement data\n");
+//         break;
+//       case E_NO_NEW_LINE:    
+//         printf("No new line found before reaching buffer end\n");
+//         break;
+//       case E_LINE_TOO_LONG:  
+//         printf("Line too long to be parsed\n");
+//         break;
+//       case E_INV_LINE_FORMAT:
+//         printf("Invalid format line\n");
+//         break;
+//       case E_NUMBER_PARSE:   
+//         printf("Error while parsing number\n");
+//         break;
+//     }
+//   }
 
-  return 0;
-}
+//   return 0;
+// }
 
 
-void printBwResult(struct BW_result bw_result) {
+void printBwResult(BW_result bw_result) {
   printf("id 0x%x\n", bw_result.id_measurement);
   for (int i=0; i< NUM_CONN; i++) {
     printf("conn %2d  %20ld bytes %.3f seconds\n", i, bw_result.conn_bytes[i], bw_result.conn_duration[i]);
@@ -132,7 +130,7 @@ void printBwResult(struct BW_result bw_result) {
 }
 
 
-int packResultPayload(struct BW_result bw_result, void *buffer, int buffer_size) {
+int packResultPayload(BW_result bw_result, void *buffer, int buffer_size) {
 
   int bytes_temp_buffer = 0;
 
@@ -173,7 +171,7 @@ int packResultPayload(struct BW_result bw_result, void *buffer, int buffer_size)
   return bytes_temp_buffer;
 }
 
-int unpackResultPayload(struct BW_result *bw_result, void *buffer, int buffer_size) {
+int unpackResultPayload(BW_result *bw_result, void *buffer, int buffer_size) {
   if (buffer_size < sizeof(uint32_t)) {
     /* Buffer too small for minimum data */
     return E_MINIMUM_DATA; 
@@ -215,7 +213,7 @@ int unpackResultPayload(struct BW_result *bw_result, void *buffer, int buffer_si
     }
     memcpy(line, buf + line_start, line_length);
     line[line_length] = '\0'; /* Null terminate C-string */
-    printf("Line [%d,%d] %s\n", line_start, line_end, line);
+    //printf("Line [%d,%d] %s\n", line_start, line_end, line);
     
     // Parse the line: "conn_bytes,conn_duration"
     char *comma_pos = strchr(line, ',');

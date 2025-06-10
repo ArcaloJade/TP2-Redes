@@ -1,5 +1,46 @@
 # include "header.h"
 
+// — Estructuras y globals —
+BW_result results[MAX_RESULTS];
+int result_count = 0;
+pthread_mutex_t results_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// void *udp_latency_handler(void *arg) {
+//     int udp_sock;
+//     struct sockaddr_in serv_addr, client_addr;
+//     socklen_t client_len = sizeof(client_addr);
+//     uint8_t buffer[4];
+
+//     if ((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+//         perror("UDP socket creation failed");
+//         pthread_exit(NULL);
+//     }
+
+//     memset(&serv_addr, 0, sizeof(serv_addr));
+//     serv_addr.sin_family = AF_INET;
+//     serv_addr.sin_addr.s_addr = INADDR_ANY;
+//     serv_addr.sin_port = htons(SERVER_PORT_1);
+
+//     if (bind(udp_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+//         perror("UDP bind failed");
+//         close(udp_sock);
+//         pthread_exit(NULL);
+//     }
+
+//     while (1) {
+//         ssize_t len = recvfrom(udp_sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &client_len);
+//         if (len == 4 && buffer[0] == 0xFF) {
+//             sendto(udp_sock, buffer, 4, 0, (struct sockaddr *)&client_addr, client_len);
+//         } else {
+//             fprintf(stderr, "Received invalid UDP message (length: %zd, first byte: 0x%02X)\n", len, buffer[0]);
+//         }
+//     }
+
+//     close(udp_sock);
+//     pthread_exit(NULL);
+// }
+
+
 void *connection_handler_download(void *arg) {
     int sock = *(int *)arg;
     free(arg);
@@ -62,12 +103,109 @@ void *connection_handler_upload(void *arg) {
         if (elapsed >= T) break;
     }
 
-    printf("UPLOAD conn_id=%d bytes=%lld\n", conn_id, total_bytes);
-
-    // Aquí podrías guardar `test_id`, `conn_id`, `total_bytes` y `elapsed` en una estructura global protegida por mutex
+    double duration = (now.tv_sec - start.tv_sec) + (now.tv_usec - start.tv_usec) / 1e6;
+    printf("[UPLOAD HANDLER] test_id=0x%08X, conn_id=%2d, bytes=%lld, duration=%.3f s\n",
+       test_id, conn_id, total_bytes, duration);
+    // Guardar bajo mutex
+    pthread_mutex_lock(&results_mutex);
+    int found = 0;
+    for (int i = 0; i < result_count; ++i) {
+        if (results[i].id_measurement == test_id) {
+            results[i].conn_bytes[conn_id-1]    = total_bytes;
+            results[i].conn_duration[conn_id-1] = duration;
+            found = 1;
+            break;
+        }
+    }
+    if (!found && result_count < MAX_RESULTS) {
+        results[result_count].id_measurement             = test_id;
+        results[result_count].conn_bytes[conn_id-1]      = total_bytes;
+        results[result_count].conn_duration[conn_id-1]   = duration;
+        result_count++;
+    }
+    pthread_mutex_unlock(&results_mutex);
 
     close(sock);
     pthread_exit(NULL);
+    return NULL;
+}
+
+void *udp_result_server(void *arg) {
+    printf("UDP server thread starting up on port %d...\n", SERVER_PORT_1);
+
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        perror("socket udp");
+        pthread_exit(NULL);
+    }
+
+    // Permitir rebind rápido
+    int opt = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    #ifdef SO_REUSEPORT
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    #endif
+
+    struct sockaddr_in addr, cliaddr;
+    socklen_t cli_len = sizeof(cliaddr);
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family      = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port        = htons(SERVER_PORT_1);
+
+
+    if (bind(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        perror("bind udp");
+        close(sockfd);
+        pthread_exit(NULL);
+    }
+
+    printf("UDP server listening on port %d for test_id queries\n", SERVER_PORT_1);
+    uint8_t  recv_buf[4];
+    uint8_t  send_buf[4096];
+    while (1) {
+        ssize_t n = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
+                             (struct sockaddr *)&cliaddr, &cli_len);
+        if (n != 4) continue;
+
+        // RTT: primer byte = 0xFF → eco
+        if (recv_buf[0] == 0xFF) {
+            sendto(sockfd, recv_buf, 4, 0,
+                   (struct sockaddr *)&cliaddr, cli_len);
+            printf("[UDP RTT] echo from %s\n", inet_ntoa(cliaddr.sin_addr));
+            fflush(stdout);
+            continue;
+        }
+
+        uint32_t net_id;
+        memcpy(&net_id, recv_buf, 4);
+        uint32_t test_id = ntohl(net_id);
+
+        printf("[UDP QUERY] test_id=0x%08X from %s\n",
+               test_id, inet_ntoa(cliaddr.sin_addr));
+        fflush(stdout);
+        // Buscar resultado
+        pthread_mutex_lock(&results_mutex);
+        BW_result r = {0};
+        int found=0;
+        for(int i=0;i<result_count;i++){
+            if(results[i].id_measurement==test_id){
+                r = results[i]; 
+                found=1; 
+                break;
+            }
+        }
+        pthread_mutex_unlock(&results_mutex);
+        if(!found) continue;
+
+        int plen = packResultPayload(r,send_buf,sizeof(send_buf));
+        if(plen>0) {
+        printf("[UDP REPLY] enviando %d bytes (%d líneas) para test_id=0x%08X\n", plen, NUM_CONN, test_id);
+            sendto(sockfd,send_buf,plen,0,(struct sockaddr*)&cliaddr,cli_len);
+        }
+    }
+    close(sockfd);
+    return NULL;
 }
 
 void *download_connections(void *arg){
@@ -122,6 +260,7 @@ void *download_connections(void *arg){
     }
 
     close(server_fd);
+    return NULL;
 }
 
 void *upload_connections(void *arg) {
@@ -170,7 +309,6 @@ void *upload_connections(void *arg) {
 
         int *client_sock = malloc(sizeof(int));
         *client_sock = new_socket;
-
         pthread_t thread_id;
         if (pthread_create(&thread_id, NULL, connection_handler_upload, client_sock) != 0) {
             perror("pthread_create upload");
@@ -184,23 +322,21 @@ void *upload_connections(void *arg) {
 
     close(server_fd);
     pthread_exit(NULL);
+    return NULL;
 }
 
+
+
 int main() {
-    pthread_t download_thread, upload_thread;
+    pthread_t download_thread, upload_thread, udp_thread;
 
-    if (pthread_create(&download_thread, NULL, download_connections, NULL) != 0) {
-        perror("pthread_create download");
-        exit(EXIT_FAILURE);
-    }
-
-    if (pthread_create(&upload_thread, NULL, upload_connections, NULL) != 0) {
-        perror("pthread_create upload");
-        exit(EXIT_FAILURE);
-    }
+    pthread_create(&download_thread, NULL, download_connections, NULL);
+    pthread_create(&upload_thread,   NULL, upload_connections,   NULL);
+    pthread_create(&udp_thread,      NULL, udp_result_server,    NULL);
 
     pthread_join(download_thread, NULL);
-    pthread_join(upload_thread, NULL);
+    pthread_join(upload_thread,   NULL);
+    pthread_join(udp_thread,      NULL);
 
     return 0;
 }

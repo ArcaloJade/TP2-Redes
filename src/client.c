@@ -3,6 +3,62 @@
 long long total_bytes = 0;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
+void medir_rtt() {
+    int udp_sock;
+    struct sockaddr_in serv_addr;
+    uint8_t msg[4], recv_buf[4];
+
+    if ((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("UDP socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    struct timeval timeout = {10, 0};  // 10 segundos
+    setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(SERVER_PORT_1);
+    inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr);
+
+    printf("Iniciando mediciones de latencia (RTT)...\n");
+
+    for (int i = 0; i < 3; ++i) {
+        // Generar payload aleatorio válido
+        msg[0] = 0xFF;
+        for (int j = 1; j < 4; ++j)
+            msg[j] = rand() % 256;
+
+        struct timeval t1, t2;
+
+        if (sendto(udp_sock, msg, 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 4) {
+            perror("sendto failed");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
+        gettimeofday(&t1, NULL);
+
+        socklen_t addr_len = sizeof(serv_addr);
+        ssize_t n = recvfrom(udp_sock, recv_buf, 4, 0, (struct sockaddr *)&serv_addr, &addr_len);
+
+        gettimeofday(&t2, NULL);
+
+        if (n != 4 || memcmp(msg, recv_buf, 4) != 0) {
+            fprintf(stderr, "Error: respuesta inválida o no coincide\n");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
+
+        double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
+        printf("RTT %d: %.3f ms\n", i + 1, rtt);
+
+        sleep(1);
+    }
+
+    close(udp_sock);
+}
+
+
 void *download_thread(void *arg) {
     download_thread_info *info = (download_thread_info *)arg;
     int sock;
@@ -68,7 +124,7 @@ void *upload_thread(void *arg) {
     }
 
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(SERVER_PORT_1);
+    serv_addr.sin_port = htons(SERVER_PORT_2);
 
     if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
         perror("Invalid address");
@@ -92,7 +148,6 @@ void *upload_thread(void *arg) {
 
     send(sock, header, 6, 0);
     printf("upload_thread %d → test_id: %08X, conn_id: %04X\n", info->id, info->test_id, info->conn_id);
-
     struct timeval start, now;
     gettimeofday(&start, NULL);
 
@@ -105,9 +160,60 @@ void *upload_thread(void *arg) {
         double elapsed = (now.tv_sec - start.tv_sec) + (now.tv_usec - start.tv_usec) / 1e6;
         if (elapsed >= T) break;
     }
-
     close(sock);
     pthread_exit(NULL);
+}
+
+void query_upload_results(uint32_t test_id) {
+    int sockfd;
+    struct sockaddr_in servaddr;
+    uint8_t recv_buf[4096];
+
+    // 1) Crear socket UDP
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket UDP");
+        return;
+    }
+
+    // 2) Configurar dirección del servidor (mismo IP y puerto 20251)
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port   = htons(SERVER_PORT_1);
+    inet_pton(AF_INET, SERVER_IP, &servaddr.sin_addr);
+
+    // 3) Enviar solo los 4 bytes del test_id en orden de red
+    uint32_t net_id = htonl(test_id);
+    if (sendto(sockfd, &net_id, sizeof(net_id), 0,
+               (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("sendto");
+        close(sockfd);
+        return;
+    }
+
+    // 4) Recibir la respuesta completa (4 bytes + NUM_CONN líneas ASCII)
+    ssize_t n = recvfrom(sockfd, recv_buf, sizeof(recv_buf)-1, 0, NULL, NULL);
+    if (n < 0) {
+        perror("recvfrom");
+        close(sockfd);
+        return;
+    }
+    recv_buf[n] = '\0';  // cerrar string
+
+    // 5) Imprimir líneas que llegaron
+    // Primero, verificar que los primeros 4 bytes coincidan con net_id
+    uint32_t rnet; memcpy(&rnet,recv_buf,4);
+    if (ntohl(rnet)!=test_id) 
+        fprintf(stderr,"ID mismatch\n");
+    else {
+        BW_result res;
+        int ret = unpackResultPayload(&res, recv_buf, n);
+        if (ret<0) fprintf(stderr,"Error unpack: %d\n",ret);
+        else {
+            printf("Results for test_id 0x%08X:\n",res.id_measurement);
+            printBwResult(res);
+        }
+    }
+    close(sockfd);
 }
 
 int main(int argc, char *argv[]) {
@@ -117,7 +223,9 @@ int main(int argc, char *argv[]) {
     }   
 
     // int N = atoi(argv[1]);
-    
+    srand(time(NULL));  // semilla para rand()
+    medir_rtt();        // hace 3 mediciones de RTT por UDP
+
     pthread_t download_threads[NUM_CONN];
     download_thread_info infos[NUM_CONN];
 
@@ -165,6 +273,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_CONN; ++i) {
         pthread_join(upload_threads[i], NULL);
     }
-
+    // Pequeño retardo para asegurarnos de que el servidor haya guardado todo
+    sleep(1);
+    query_upload_results(test_id);
     return 0;
 }
