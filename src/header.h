@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <signal.h>
 
-#define SERVER_IP "192.168.1.23"
+#define SERVER_IP "127.0.0.1"
 #define SERVER_PORT_1 20251
 #define SERVER_PORT_2 20252
 #define BUF_SIZE 4096

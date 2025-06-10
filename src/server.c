@@ -5,41 +5,31 @@ BW_result results[MAX_RESULTS];
 int result_count = 0;
 pthread_mutex_t results_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// void *udp_latency_handler(void *arg) {
-//     int udp_sock;
-//     struct sockaddr_in serv_addr, client_addr;
-//     socklen_t client_len = sizeof(client_addr);
-//     uint8_t buffer[4];
+void print_local_ip(void) {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        perror("socket get-ip");
+        return;
+    }
 
-//     if ((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-//         perror("UDP socket creation failed");
-//         pthread_exit(NULL);
-//     }
+    struct sockaddr_in dst = {
+        .sin_family      = AF_INET,
+        .sin_port        = htons(53),              // puerto DNS, dummy
+        .sin_addr.s_addr = inet_addr("8.8.8.8")    // IP externa pública
+    };
 
-//     memset(&serv_addr, 0, sizeof(serv_addr));
-//     serv_addr.sin_family = AF_INET;
-//     serv_addr.sin_addr.s_addr = INADDR_ANY;
-//     serv_addr.sin_port = htons(SERVER_PORT_1);
+    connect(sock, (struct sockaddr *)&dst, sizeof(dst));
 
-//     if (bind(udp_sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-//         perror("UDP bind failed");
-//         close(udp_sock);
-//         pthread_exit(NULL);
-//     }
+    struct sockaddr_in local;
+    socklen_t len = sizeof(local);
+    getsockname(sock, (struct sockaddr *)&local, &len);
 
-//     while (1) {
-//         ssize_t len = recvfrom(udp_sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &client_len);
-//         if (len == 4 && buffer[0] == 0xFF) {
-//             sendto(udp_sock, buffer, 4, 0, (struct sockaddr *)&client_addr, client_len);
-//         } else {
-//             fprintf(stderr, "Received invalid UDP message (length: %zd, first byte: 0x%02X)\n", len, buffer[0]);
-//         }
-//     }
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &local.sin_addr, ip_str, sizeof(ip_str));
 
-//     close(udp_sock);
-//     pthread_exit(NULL);
-// }
-
+    printf("Servidor corriendo — IP local: %s\n", ip_str);
+    close(sock);
+}
 
 void *connection_handler_download(void *arg) {
     int sock = *(int *)arg;
@@ -210,9 +200,8 @@ void *udp_result_server(void *arg) {
 
 void *download_connections(void *arg){
     int server_fd, new_socket;
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-
+    struct sockaddr_in address, client_addr;
+        socklen_t clilen = sizeof(client_addr);
     signal(SIGPIPE, SIG_IGN); // Evita que el servidor termine con un write a socket cerrado
 
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -222,11 +211,14 @@ void *download_connections(void *arg){
 
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    #ifdef SO_REUSEPORT
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    #endif
 
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(SERVER_PORT_1);
-
+    printf("Conexión desde %s\n", inet_ntoa(address.sin_addr));    
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
         exit(EXIT_FAILURE);
@@ -240,11 +232,13 @@ void *download_connections(void *arg){
     printf("Server listening on port %d...\n", SERVER_PORT_1);
 
     while (1) {
-        new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+        new_socket = accept(server_fd, (struct sockaddr *)&client_addr, &clilen);
         if (new_socket < 0) {
             perror("accept");
             continue;
         }
+
+        printf("New download connection from %s:%d\n",inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));
 
         int *client_sock = malloc(sizeof(int));
         *client_sock = new_socket;
@@ -328,6 +322,8 @@ void *upload_connections(void *arg) {
 
 
 int main() {
+    print_local_ip();
+    
     pthread_t download_thread, upload_thread, udp_thread;
 
     pthread_create(&download_thread, NULL, download_connections, NULL);
