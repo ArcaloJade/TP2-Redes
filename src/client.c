@@ -2,6 +2,7 @@
 
 long long total_bytes = 0;
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+const char *dst_ip;
 
 double medir_rtt() {
     double avg_rtt = 0.0;
@@ -20,7 +21,7 @@ double medir_rtt() {
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT_1);
-    inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr);
+    inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr);
 
     printf("Iniciando mediciones de latencia (RTT)...\n");
 
@@ -76,7 +77,7 @@ void *download_thread(void *arg) {
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT_1);
 
-    if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr) <= 0) {
         perror("Invalid address");
         close(sock);
         pthread_exit(NULL);
@@ -128,7 +129,7 @@ void *upload_thread(void *arg) {
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT_2);
 
-    if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr) <= 0) {
         perror("Invalid address");
         close(sock);
         pthread_exit(NULL);
@@ -181,7 +182,7 @@ void query_upload_results(uint32_t test_id) {
     memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_port   = htons(SERVER_PORT_1);
-    inet_pton(AF_INET, SERVER_IP, &servaddr.sin_addr);
+    inet_pton(AF_INET, dst_ip, &servaddr.sin_addr);
 
     // 3) Enviar solo los 4 bytes del test_id en orden de red
     uint32_t net_id = htonl(test_id);
@@ -219,11 +220,12 @@ void query_upload_results(uint32_t test_id) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 1) {
-        fprintf(stderr, "no necesita argumentos\n");
+    if (argc != 2) {
+        fprintf(stderr, "Necesita como único argumento el IP destino.\n");
         return 1;
     }   
 
+    dst_ip = argv[1];
 
     char timestamp[20]; // YYYY-MM-DD HH:MM:SS -> 19 chars + \0
     time_t now = time(NULL);
@@ -233,7 +235,6 @@ int main(int argc, char *argv[]) {
 
     printf("\"timestamp\": \"%s\"\n", timestamp);
 
-    // int N = atoi(argv[1]);
     srand(time(NULL));  // semilla para rand()
 
     // Etapa Idle
@@ -316,7 +317,7 @@ int main(int argc, char *argv[]) {
         socklen_t len = sizeof(tmp);
         memset(&tmp, 0, sizeof(tmp));
         tmp.sin_family = AF_INET;
-        tmp.sin_addr.s_addr = inet_addr(SERVER_IP); // IP destino
+        tmp.sin_addr.s_addr = inet_addr(dst_ip); // IP destino
         tmp.sin_port = htons(53);                    // puerto destino (DNS típico)
         connect(s, (struct sockaddr*)&tmp, sizeof(tmp));
         getsockname(s, (struct sockaddr*)&tmp, &len);
@@ -339,7 +340,7 @@ int main(int argc, char *argv[]) {
         "\"rtt_download\": %.3f, "
         "\"rtt_upload\": %.3f"
         "}",
-        src_ip, SERVER_IP, timestamp,
+        src_ip, dst_ip, timestamp,
         dwld_throughput, upld_throughput,
         NUM_CONN,
         idle_rtt, dwld_rtt, upld_rtt
@@ -355,7 +356,7 @@ int main(int argc, char *argv[]) {
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(SERVER_PORT_1);
-    inet_pton(AF_INET, SERVER_IP, &dest_addr.sin_addr);
+    inet_pton(AF_INET, dst_ip, &dest_addr.sin_addr);
 
     ssize_t sent = sendto(sock, json, strlen(json), 0,
                           (struct sockaddr *)&dest_addr, sizeof(dest_addr));
