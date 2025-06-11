@@ -23,7 +23,7 @@ double medir_rtt() {
     serv_addr.sin_port = htons(SERVER_PORT_1);
     inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr);
 
-    printf("Iniciando mediciones de latencia (RTT)...\n");
+    // printf("Iniciando mediciones de latencia (RTT)...\n");
 
     for (int i = 0; i < 3; ++i) {
         // Generar payload aleatorio válido
@@ -73,7 +73,7 @@ double medir_rtt() {
         }
 
         double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
-        printf("RTT %d: %.3f ms\n", i + 1, rtt);
+        // printf("RTT %d: %.3f ms\n", i + 1, rtt);
         avg_rtt += rtt;
         sleep(1);
     }
@@ -171,7 +171,7 @@ void *upload_thread(void *arg) {
     header[5] = info->conn_id & 0xFF;
 
     send(sock, header, 6, 0);
-    printf("upload_thread %d → test_id: %08X, conn_id: %04X\n", info->id, info->test_id, info->conn_id);
+    // printf("upload_thread %d → test_id: %08X, conn_id: %04X\n", info->id, info->test_id, info->conn_id);
     struct timeval start, now;
     gettimeofday(&start, NULL);
 
@@ -232,10 +232,10 @@ void query_upload_results(uint32_t test_id) {
         BW_result res;
         int ret = unpackResultPayload(&res, recv_buf, n);
         if (ret<0) fprintf(stderr,"Error unpack: %d\n",ret);
-        else {
-            printf("Results for test_id 0x%08X:\n",res.id_measurement);
-            printBwResult(res);
-        }
+        // else {
+        //     printf("Results for test_id 0x%08X:\n",res.id_measurement);
+        //     printBwResult(res);
+        // }
     }
     close(sockfd);
 }
@@ -260,7 +260,7 @@ int main(int argc, char *argv[]) {
 
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", t);
 
-    printf("\"timestamp\": \"%s\"\n", timestamp);
+    // printf("\"timestamp\": \"%s\"\n", timestamp);
 
     srand(time(NULL));  // semilla para rand()
 
@@ -301,9 +301,9 @@ int main(int argc, char *argv[]) {
 
     double throughput = 8.0 * total_bytes / elapsed / 1e6; // Mbps
 
-    printf("Total bytes received: %lld bytes\n", total_bytes);
-    printf("Elapsed time: %.3f seconds\n", elapsed);
-    printf("Download throughput: %.3f Mbps\n", throughput);
+    // printf("Total bytes received: %lld bytes\n", total_bytes);
+    // printf("Elapsed time: %.3f seconds\n", elapsed);
+    // printf("Download throughput: %.3f Mbps\n", throughput);
 
     double dwld_throughput = throughput * 1000000.0;  // Guardar throughput de descarga
 
@@ -366,7 +366,7 @@ int main(int argc, char *argv[]) {
         inet_ntop(AF_INET, &tmp.sin_addr, src_ip, sizeof(src_ip));
         close(s);
     }
-    printf("Mi IP local es: %s\n", src_ip);
+    // printf("Mi IP local es: %s\n", src_ip);
 
 
     char json[512];
