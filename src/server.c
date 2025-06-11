@@ -229,7 +229,7 @@ void *download_connections(void *arg){
         exit(EXIT_FAILURE);
     }
 
-    printf("Server listening on port %d...\n", SERVER_PORT_1);
+    printf("Servidor escuchando DOWNLOAD en puerto %d...\n", SERVER_PORT_1);
 
     while (1) {
         new_socket = accept(server_fd, (struct sockaddr *)&client_addr, &clilen);

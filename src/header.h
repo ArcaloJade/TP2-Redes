@@ -52,13 +52,15 @@ void *upload_connections(void *arg);
 void *connection_handler_download(void *arg);
 void *connection_handler_upload(void *arg);
 void *udp_result_server(void *arg);
-
-// Estructura y prototipos pack/unpack 
 typedef struct {
     uint32_t id_measurement;
     uint64_t conn_bytes[NUM_CONN];
     double   conn_duration[NUM_CONN];
 } BW_result;
+typedef struct {
+    double rtt_result;
+} rtt_thread_info;
+void *rtt_thread(void *arg);
 
 
 // handle_result.c

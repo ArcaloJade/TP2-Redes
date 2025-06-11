@@ -240,6 +240,12 @@ void query_upload_results(uint32_t test_id) {
     close(sockfd);
 }
 
+void *rtt_thread(void *arg) {
+    rtt_thread_info *info = (rtt_thread_info *)arg;
+    info->rtt_result = medir_rtt() / 1000.0;
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Necesita como único argumento el IP destino.\n");
@@ -259,12 +265,16 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));  // semilla para rand()
 
     // Etapa Idle
-    printf("== Etapa IDLE ==\n");
+    printf("Etapa IDLE corriendo...\n");
     double idle_rtt = medir_rtt() / 1000.0;        // mediciones de RTT en etapa idle
 
     //-----------download main-----------
-    printf("== Etapa DOWNLOAD ==\n");
-    double dwld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de download
+    printf("Etapa DOWNLOAD corriendo...\n");
+    // double dwld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de download
+    pthread_t rtt_download_thread;
+    rtt_thread_info dwld_rtt_info;
+    pthread_create(&rtt_download_thread, NULL, rtt_thread, &dwld_rtt_info);
+
 
     pthread_t download_threads[NUM_CONN];
     download_thread_info infos[NUM_CONN];
@@ -282,6 +292,10 @@ int main(int argc, char *argv[]) {
         pthread_join(download_threads[i], NULL);
     }
 
+    pthread_join(rtt_download_thread, NULL);
+    double dwld_rtt = dwld_rtt_info.rtt_result;
+
+
     gettimeofday(&t1, NULL);
     double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_usec - t0.tv_usec) / 1e6;
 
@@ -294,8 +308,12 @@ int main(int argc, char *argv[]) {
     double dwld_throughput = throughput * 1000000.0;  // Guardar throughput de descarga
 
     //-----------upload main-----------
-    printf("== Etapa UPLOAD ==\n");
-    double upld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de upload
+    printf("Etapa UPLOAD corriendo...\n");
+    // double upld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de upload
+    pthread_t rtt_upload_thread;
+    rtt_thread_info upld_rtt_info;
+    pthread_create(&rtt_upload_thread, NULL, rtt_thread, &upld_rtt_info);
+
 
     pthread_t upload_threads[NUM_CONN];
     upload_thread_info up_infos[NUM_CONN];
@@ -318,6 +336,9 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_CONN; ++i) {
         pthread_join(upload_threads[i], NULL);
     }
+    pthread_join(rtt_upload_thread, NULL);
+    double upld_rtt = upld_rtt_info.rtt_result;
+
 
     double total_bytes_sent = 0;
     for (int i = 0; i < NUM_CONN; ++i) {
