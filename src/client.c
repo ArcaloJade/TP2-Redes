@@ -15,8 +15,8 @@ double medir_rtt() {
         exit(EXIT_FAILURE);
     }
 
-    struct timeval timeout = {10, 0};  // 10 segundos
-    setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    // struct timeval timeout = {10, 0};  // 10 segundos
+    // setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
@@ -32,13 +32,34 @@ double medir_rtt() {
             msg[j] = rand() % 256;
 
         struct timeval t1, t2;
+        gettimeofday(&t1, NULL);
 
         if (sendto(udp_sock, msg, 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 4) {
             perror("sendto failed");
             close(udp_sock);
             exit(EXIT_FAILURE);
         }
-        gettimeofday(&t1, NULL);
+
+        // Esperar con select()
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(udp_sock, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(udp_sock + 1, &readfds, NULL, NULL, &timeout);
+
+        if (ready == -1) {
+            perror("select failed");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        } else if (ready == 0) {
+            fprintf(stderr, "Timeout esperando respuesta del servidor\n");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
 
         socklen_t addr_len = sizeof(serv_addr);
         ssize_t n = recvfrom(udp_sock, recv_buf, 4, 0, (struct sockaddr *)&serv_addr, &addr_len);
