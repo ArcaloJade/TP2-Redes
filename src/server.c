@@ -5,32 +5,6 @@ BW_result results[MAX_RESULTS];
 int result_count = 0;
 pthread_mutex_t results_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void print_local_ip(void) {
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0) {
-        perror("socket get-ip");
-        return;
-    }
-
-    struct sockaddr_in dst = {
-        .sin_family      = AF_INET,
-        .sin_port        = htons(53),              // puerto DNS, dummy
-        .sin_addr.s_addr = inet_addr("8.8.8.8")    // IP externa pública
-    };
-
-    connect(sock, (struct sockaddr *)&dst, sizeof(dst));
-
-    struct sockaddr_in local;
-    socklen_t len = sizeof(local);
-    getsockname(sock, (struct sockaddr *)&local, &len);
-
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &local.sin_addr, ip_str, sizeof(ip_str));
-
-    // printf("Servidor corriendo — IP local: %s\n", ip_str);
-    close(sock);
-}
-
 void *connection_handler_download(void *arg) {
     int sock = *(int *)arg;
     free(arg);
@@ -68,14 +42,9 @@ void *connection_handler_upload(void *arg) {
         pthread_exit(NULL);
     }
 
-    // Extraer test_id y conn_id
     uint32_t test_id = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
     uint16_t conn_id = (header[4] << 8) | header[5];
 
-    // printf("Conexión desde %s - test_id: %08X, conn_id: %d\n",
-    //        inet_ntoa(cli_addr.sin_addr), test_id, conn_id);
-
-    // Contar bytes recibidos durante T segundos
     char buffer[BUF_SIZE];
     long long total_bytes = 0;
 
@@ -94,9 +63,6 @@ void *connection_handler_upload(void *arg) {
     }
 
     double duration = (now.tv_sec - start.tv_sec) + (now.tv_usec - start.tv_usec) / 1e6;
-    // printf("[UPLOAD HANDLER] test_id=0x%08X, conn_id=%2d, bytes=%lld, duration=%.3f s\n",
-    //    test_id, conn_id, total_bytes, duration);
-    // Guardar bajo mutex
     pthread_mutex_lock(&results_mutex);
     int found = 0;
     for (int i = 0; i < result_count; ++i) {
@@ -121,7 +87,6 @@ void *connection_handler_upload(void *arg) {
 }
 
 void *udp_result_server(void *arg) {
-    // printf("UDP server thread starting up on port %d...\n", SERVER_PORT_1);
 
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
@@ -129,7 +94,6 @@ void *udp_result_server(void *arg) {
         pthread_exit(NULL);
     }
 
-    // Permitir rebind rápido
     int opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     #ifdef SO_REUSEPORT
@@ -150,7 +114,6 @@ void *udp_result_server(void *arg) {
         pthread_exit(NULL);
     }
 
-    // printf("UDP server listening on port %d for test_id queries\n", SERVER_PORT_1);
     uint8_t  recv_buf[4];
     uint8_t  send_buf[4096];
     while (1) {
@@ -158,12 +121,9 @@ void *udp_result_server(void *arg) {
                              (struct sockaddr *)&cliaddr, &cli_len);
         if (n != 4) continue;
 
-        // RTT: primer byte = 0xFF → eco
         if (recv_buf[0] == 0xFF) {
             sendto(sockfd, recv_buf, 4, 0,
                    (struct sockaddr *)&cliaddr, cli_len);
-            // printf("[UDP RTT] echo from %s\n", inet_ntoa(cliaddr.sin_addr));
-            // fflush(stdout);
             continue;
         }
 
@@ -171,10 +131,6 @@ void *udp_result_server(void *arg) {
         memcpy(&net_id, recv_buf, 4);
         uint32_t test_id = ntohl(net_id);
 
-        // printf("[UDP QUERY] test_id=0x%08X from %s\n",
-        //        test_id, inet_ntoa(cliaddr.sin_addr));
-        // fflush(stdout);
-        // Buscar resultado
         pthread_mutex_lock(&results_mutex);
         BW_result r = {0};
         int found=0;
@@ -190,7 +146,6 @@ void *udp_result_server(void *arg) {
 
         int plen = packResultPayload(r,send_buf,sizeof(send_buf));
         if(plen>0) {
-        // printf("[UDP REPLY] enviando %d bytes (%d líneas) para test_id=0x%08X\n", plen, NUM_CONN, test_id);
         sendto(sockfd,send_buf,plen,0,(struct sockaddr*)&cliaddr,cli_len);
         }
     }
@@ -202,8 +157,7 @@ void *download_connections(void *arg){
     int server_fd, new_socket;
     struct sockaddr_in address, client_addr;
         socklen_t clilen = sizeof(client_addr);
-    signal(SIGPIPE, SIG_IGN); // Evita que el servidor termine con un write a socket cerrado
-
+    signal(SIGPIPE, SIG_IGN); 
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
@@ -218,7 +172,6 @@ void *download_connections(void *arg){
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(SERVER_PORT_1);
-    // printf("Conexión desde %s\n", inet_ntoa(address.sin_addr));    
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
         exit(EXIT_FAILURE);
@@ -238,8 +191,6 @@ void *download_connections(void *arg){
             continue;
         }
 
-        // printf("New download connection from %s:%d\n",inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));
-
         int *client_sock = malloc(sizeof(int));
         *client_sock = new_socket;
 
@@ -250,7 +201,7 @@ void *download_connections(void *arg){
             free(client_sock);
         }
 
-        pthread_detach(thread_id); // liberar recursos automáticamente
+        pthread_detach(thread_id); 
     }
 
     close(server_fd);
@@ -262,9 +213,8 @@ void *upload_connections(void *arg) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
 
-    signal(SIGPIPE, SIG_IGN); // Evita que el servidor muera por write() a socket cerrado
+    signal(SIGPIPE, SIG_IGN); 
 
-    // Crear socket
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket upload failed");
         pthread_exit(NULL);
@@ -273,12 +223,10 @@ void *upload_connections(void *arg) {
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    // Configurar dirección del servidor
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(SERVER_PORT_2);  // puerto 20252
+    address.sin_port = htons(SERVER_PORT_2);  
 
-    // Asociar socket a puerto
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind upload failed");
         close(server_fd);
@@ -293,7 +241,6 @@ void *upload_connections(void *arg) {
 
     printf("Servidor escuchando UPLOAD en puerto %d...\n", SERVER_PORT_2);
 
-    // Aceptar conexiones entrantes en bucle
     while (1) {
         int new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
         if (new_socket < 0) {
@@ -311,7 +258,7 @@ void *upload_connections(void *arg) {
             continue;
         }
 
-        pthread_detach(thread_id); // Liberar recursos del hilo automáticamente
+        pthread_detach(thread_id); 
     }
 
     close(server_fd);
@@ -320,10 +267,7 @@ void *upload_connections(void *arg) {
 }
 
 
-
-int main() {
-    print_local_ip();
-    
+int main() {    
     pthread_t download_thread, upload_thread, udp_thread;
 
     pthread_create(&download_thread, NULL, download_connections, NULL);

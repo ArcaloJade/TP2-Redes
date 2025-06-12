@@ -1,33 +1,32 @@
-## 1 · Enunciado resumido
+# TP D – Medición de Throughput y Latencia con BSD Sockets
 
-La cátedra solicita implementar un **mini-Speedtest** que mida tres métricas entre un cliente y un servidor:
+Este proyecto implementa un **cliente** y un **servidor** en C que:
+1. Miden RTT (3× idle, 3× post-download, 3× post-upload) vía UDP.
+2. Ejecutan pruebas de **download** y **upload** de 20 s con *N* conexiones TCP.
+3. Exportan las métricas en JSON por UDP (compatible Logstash).
 
-| Métrica | Quién genera el tráfico | Puerto / Protocolo | Resultado |
-|---------|------------------------|--------------------|-----------|
-| **Download** (bajada)   | Servidor → Cliente | TCP 20251 | Throughput bit/s |
-| **Upload** (subida)     | Cliente → Servidor | TCP 20252 | Throughput bit/s |
-| **Latencia + Jitter**   | Cliente ↔ Servidor | UDP 20251 | RTT medio y dispersión |
+## Compilación
+  make clean   # limpia objetos
+  make         # genera ./client y ./server
 
-Al finalizar la prueba, el cliente debe empaquetar todo en un JSON y enviarlo por UDP a un colector (Logstash).
+  # Terminal 1 – servidor
+  ./server          # Abre: TCP 20251/20252 y UDP 20251
 
----
+  # Terminal 2 – cliente
+  ./client <ip-server>  # Mide con N conexiones paralelas (N valor fijo en el código)
+  ./client 127.0.0.1  # Ejemplo
 
-## 2 · Alcance de esta entrega
-
-**ruta de Download**:
-
-* El servidor escucha en **0.0.0.0:20251/TCP**.  
-* Cada cliente aceptado se atiende en un `fork()` hijo que envía bloques de 1 MiB durante *T* = 10 s (configurable).  
-* El cliente se conecta, lee durante esos 10 s, cuenta bytes y calcula  
-  \[
-  \text{Throughput} = \frac{\text{bytes} \times 8}{T} \quad[\text{bit/s}]
-  \]
-* Probado en loopback (≈800 Mb/s) y en red Wi-Fi (≈220 Mb/s), valores coherentes.
-
-Pendiente para la versión final:
-
-* **Latencia + Jitter** (UDP echo)  
-* **Upload** (TCP 20252 + `handle_result.c`)  
-* Envío del JSON final al colector
-
----
+  # Ejemplo de salida del cliente
+    Etapa IDLE corriendo...
+    Etapa DOWNLOAD corriendo...
+    Etapa UPLOAD corriendo...
+    JSON enviado (232 bytes):
+    {"src_ip": "127.0.0.1",
+    "dst_ip": "127.0.0.1",
+    "timestamp": "2025-06-12 14:46:03",
+    "avg_bw_download_bps": 75346855366,
+    "avg_bw_upload_bps": 76299851221,
+    "num_conns": 10,
+    "rtt_idle": 0.000,
+    "rtt_download": 0.000,
+    "rtt_upload": 0.001}

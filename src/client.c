@@ -15,18 +15,13 @@ double medir_rtt() {
         exit(EXIT_FAILURE);
     }
 
-    // struct timeval timeout = {10, 0};  // 10 segundos
-    // setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT_1);
     inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr);
 
-    // printf("Iniciando mediciones de latencia (RTT)...\n");
 
     for (int i = 0; i < 3; ++i) {
-        // Generar payload aleatorio válido
         msg[0] = 0xFF;
         for (int j = 1; j < 4; ++j)
             msg[j] = rand() % 256;
@@ -40,7 +35,6 @@ double medir_rtt() {
             exit(EXIT_FAILURE);
         }
 
-        // Esperar con select()
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(udp_sock, &readfds);
@@ -73,7 +67,6 @@ double medir_rtt() {
         }
 
         double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
-        // printf("RTT %d: %.3f ms\n", i + 1, rtt);
         avg_rtt += rtt;
         sleep(1);
     }
@@ -171,7 +164,6 @@ void *upload_thread(void *arg) {
     header[5] = info->conn_id & 0xFF;
 
     send(sock, header, 6, 0);
-    // printf("upload_thread %d → test_id: %08X, conn_id: %04X\n", info->id, info->test_id, info->conn_id);
     struct timeval start, now;
     gettimeofday(&start, NULL);
 
@@ -193,19 +185,16 @@ void query_upload_results(uint32_t test_id) {
     struct sockaddr_in servaddr;
     uint8_t recv_buf[4096];
 
-    // 1) Crear socket UDP
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket UDP");
         return;
     }
 
-    // 2) Configurar dirección del servidor (mismo IP y puerto 20251)
     memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_port   = htons(SERVER_PORT_1);
     inet_pton(AF_INET, dst_ip, &servaddr.sin_addr);
 
-    // 3) Enviar solo los 4 bytes del test_id en orden de red
     uint32_t net_id = htonl(test_id);
     if (sendto(sockfd, &net_id, sizeof(net_id), 0,
                (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
@@ -214,17 +203,14 @@ void query_upload_results(uint32_t test_id) {
         return;
     }
 
-    // 4) Recibir la respuesta completa (4 bytes + NUM_CONN líneas ASCII)
     ssize_t n = recvfrom(sockfd, recv_buf, sizeof(recv_buf)-1, 0, NULL, NULL);
     if (n < 0) {
         perror("recvfrom");
         close(sockfd);
         return;
     }
-    recv_buf[n] = '\0';  // cerrar string
+    recv_buf[n] = '\0';  
 
-    // 5) Imprimir líneas que llegaron
-    // Primero, verificar que los primeros 4 bytes coincidan con net_id
     uint32_t rnet; memcpy(&rnet,recv_buf,4);
     if (ntohl(rnet)!=test_id) 
         fprintf(stderr,"ID mismatch\n");
@@ -232,19 +218,19 @@ void query_upload_results(uint32_t test_id) {
         BW_result res;
         int ret = unpackResultPayload(&res, recv_buf, n);
         if (ret<0) fprintf(stderr,"Error unpack: %d\n",ret);
-        // else {
-        //     printf("Results for test_id 0x%08X:\n",res.id_measurement);
-        //     printBwResult(res);
-        // }
     }
     close(sockfd);
 }
+
 
 void *rtt_thread(void *arg) {
     rtt_thread_info *info = (rtt_thread_info *)arg;
     info->rtt_result = medir_rtt() / 1000.0;
     return NULL;
 }
+
+
+
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -254,23 +240,21 @@ int main(int argc, char *argv[]) {
 
     dst_ip = argv[1];
 
-    char timestamp[20]; // YYYY-MM-DD HH:MM:SS -> 19 chars + \0
+    char timestamp[20]; 
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
 
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", t);
 
-    // printf("\"timestamp\": \"%s\"\n", timestamp);
 
-    srand(time(NULL));  // semilla para rand()
+    srand(time(NULL));  
 
     // Etapa Idle
     printf("Etapa IDLE corriendo...\n");
-    double idle_rtt = medir_rtt() / 1000.0;        // mediciones de RTT en etapa idle
+    double idle_rtt = medir_rtt() / 1000.0;       
 
     //-----------download main-----------
     printf("Etapa DOWNLOAD corriendo...\n");
-    // double dwld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de download
     pthread_t rtt_download_thread;
     rtt_thread_info dwld_rtt_info;
     pthread_create(&rtt_download_thread, NULL, rtt_thread, &dwld_rtt_info);
@@ -299,17 +283,12 @@ int main(int argc, char *argv[]) {
     gettimeofday(&t1, NULL);
     double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_usec - t0.tv_usec) / 1e6;
 
-    double throughput = 8.0 * total_bytes / elapsed / 1e6; // Mbps
+    double throughput = 8.0 * total_bytes / elapsed / 1e6; 
 
-    // printf("Total bytes received: %lld bytes\n", total_bytes);
-    // printf("Elapsed time: %.3f seconds\n", elapsed);
-    // printf("Download throughput: %.3f Mbps\n", throughput);
-
-    double dwld_throughput = throughput * 1000000.0;  // Guardar throughput de descarga
+    double dwld_throughput = throughput * 1000000.0;  
 
     //-----------upload main-----------
     printf("Etapa UPLOAD corriendo...\n");
-    // double upld_rtt = medir_rtt() / 1000.0;        // mediciones de RTT antes de upload
     pthread_t rtt_upload_thread;
     rtt_thread_info upld_rtt_info;
     pthread_create(&rtt_upload_thread, NULL, rtt_thread, &upld_rtt_info);
@@ -319,7 +298,7 @@ int main(int argc, char *argv[]) {
     upload_thread_info up_infos[NUM_CONN];
 
 
-    srand(time(NULL));  // semilla
+    srand(time(NULL));  
     uint32_t test_id;
     do {
         test_id = (uint32_t) rand();
@@ -328,8 +307,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_CONN; ++i) {
         up_infos[i].id = i;
         up_infos[i].bytes_sent = 0;
-        up_infos[i].test_id = test_id;    // todos los hilos comparten este test_id
-        up_infos[i].conn_id = i + 1;      // conexión 1, 2, 3, ..., N
+        up_infos[i].test_id = test_id;    
+        up_infos[i].conn_id = i + 1;      
         pthread_create(&upload_threads[i], NULL, upload_thread, &up_infos[i]);
     }
 
@@ -347,11 +326,11 @@ int main(int argc, char *argv[]) {
 
     double upld_throughput = 8.0 * total_bytes_sent / elapsed / 1e6 * 1000000.0;
 
-    // Pequeño retardo para asegurarnos de que el servidor haya guardado todo
     sleep(1);
     query_upload_results(test_id);
 
-
+    //-----------JSON main-----------
+    
     char src_ip[INET_ADDRSTRLEN];
     {
         int s = socket(AF_INET, SOCK_DGRAM, 0);
@@ -359,15 +338,13 @@ int main(int argc, char *argv[]) {
         socklen_t len = sizeof(tmp);
         memset(&tmp, 0, sizeof(tmp));
         tmp.sin_family = AF_INET;
-        tmp.sin_addr.s_addr = inet_addr(dst_ip); // IP destino
-        tmp.sin_port = htons(53);                    // puerto destino (DNS típico)
+        tmp.sin_addr.s_addr = inet_addr(dst_ip); 
+        tmp.sin_port = htons(53);                   
         connect(s, (struct sockaddr*)&tmp, sizeof(tmp));
         getsockname(s, (struct sockaddr*)&tmp, &len);
         inet_ntop(AF_INET, &tmp.sin_addr, src_ip, sizeof(src_ip));
         close(s);
     }
-    // printf("Mi IP local es: %s\n", src_ip);
-
 
     char json[512];
     snprintf(json, sizeof(json),
