@@ -40,7 +40,7 @@ double medir_rtt() {
         FD_SET(udp_sock, &readfds);
 
         struct timeval timeout;
-        timeout.tv_sec = 1;
+        timeout.tv_sec = 10;
         timeout.tv_usec = 0;
 
         int ready = select(udp_sock + 1, &readfds, NULL, NULL, &timeout);
@@ -50,9 +50,15 @@ double medir_rtt() {
             close(udp_sock);
             exit(EXIT_FAILURE);
         } else if (ready == 0) {
-            fprintf(stderr, "Timeout esperando respuesta del servidor\n");
-            close(udp_sock);
-            exit(EXIT_FAILURE);
+            fprintf(stderr, "Intento %d: Timeout esperando respuesta del servidor\n", i + 1);
+            if (i < 2) {
+                sleep(1);  // espera 1 segundo antes del siguiente intento
+                continue;  // continúa con el siguiente intento
+            } else {
+                fprintf(stderr, "Error: Timeout definitivo tras 3 intentos.\n");
+                close(udp_sock);
+                exit(EXIT_FAILURE);
+            }
         }
 
         socklen_t addr_len = sizeof(serv_addr);
@@ -330,7 +336,7 @@ int main(int argc, char *argv[]) {
     query_upload_results(test_id);
 
     //-----------JSON main-----------
-    
+
     char src_ip[INET_ADDRSTRLEN];
     {
         int s = socket(AF_INET, SOCK_DGRAM, 0);
