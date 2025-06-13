@@ -15,6 +15,9 @@ double medir_rtt() {
         exit(EXIT_FAILURE);
     }
 
+    struct timeval timeout = {10, 0};  // 10 segundos
+    setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT_1);
@@ -35,31 +38,31 @@ double medir_rtt() {
             exit(EXIT_FAILURE);
         }
 
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(udp_sock, &readfds);
+        // fd_set readfds;
+        // FD_ZERO(&readfds);
+        // FD_SET(udp_sock, &readfds);
 
-        struct timeval timeout;
-        timeout.tv_sec = 10;
-        timeout.tv_usec = 0;
+        // struct timeval timeout;
+        // timeout.tv_sec = 10;
+        // timeout.tv_usec = 0;
 
-        int ready = select(udp_sock + 1, &readfds, NULL, NULL, &timeout);
+        // int ready = select(udp_sock + 1, &readfds, NULL, NULL, &timeout);
 
-        if (ready == -1) {
-            perror("select failed");
-            close(udp_sock);
-            exit(EXIT_FAILURE);
-        } else if (ready == 0) {
-            fprintf(stderr, "Intento %d: Timeout esperando respuesta del servidor\n", i + 1);
-            if (i < 2) {
-                sleep(1);  // espera 1 segundo antes del siguiente intento
-                continue;  // continúa con el siguiente intento
-            } else {
-                fprintf(stderr, "Error: Timeout definitivo tras 3 intentos.\n");
-                close(udp_sock);
-                exit(EXIT_FAILURE);
-            }
-        }
+        // if (ready == -1) {
+        //     perror("select failed");
+        //     close(udp_sock);
+        //     exit(EXIT_FAILURE);
+        // } else if (ready == 0) {
+        //     fprintf(stderr, "Intento %d: Timeout esperando respuesta del servidor\n", i + 1);
+        //     if (i < 2) {
+        //         sleep(1);  // espera 1 segundo antes del siguiente intento
+        //         continue;  // continúa con el siguiente intento
+        //     } else {
+        //         fprintf(stderr, "Error: Timeout definitivo tras 3 intentos.\n");
+        //         close(udp_sock);
+        //         exit(EXIT_FAILURE);
+        //     }
+        // }
 
         socklen_t addr_len = sizeof(serv_addr);
         ssize_t n = recvfrom(udp_sock, recv_buf, 4, 0, (struct sockaddr *)&serv_addr, &addr_len);
@@ -80,6 +83,67 @@ double medir_rtt() {
     close(udp_sock);
     return avg_rtt;
 }
+
+
+/*
+double medir_rtt() {
+    double avg_rtt = 0.0;
+    int udp_sock;
+    struct sockaddr_in serv_addr;
+    uint8_t msg[4], recv_buf[4];
+
+    if ((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("UDP socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    struct timeval timeout = {10, 0};  // 10 segundos
+    setsockopt(udp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(SERVER_PORT_1);
+    inet_pton(AF_INET, dst_ip, &serv_addr.sin_addr);
+
+    printf("Iniciando mediciones de latencia (RTT)...\n");
+
+    for (int i = 0; i < 3; ++i) {
+        // Generar payload aleatorio válido
+        msg[0] = 0xFF;
+        for (int j = 1; j < 4; ++j)
+            msg[j] = rand() % 256;
+
+        struct timeval t1, t2;
+
+        if (sendto(udp_sock, msg, 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 4) {
+            perror("sendto failed");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
+        gettimeofday(&t1, NULL);
+
+        socklen_t addr_len = sizeof(serv_addr);
+        ssize_t n = recvfrom(udp_sock, recv_buf, 4, 0, (struct sockaddr *)&serv_addr, &addr_len);
+
+        gettimeofday(&t2, NULL);
+
+        if (n != 4 || memcmp(msg, recv_buf, 4) != 0) {
+            fprintf(stderr, "Error: respuesta inválida o no coincide\n");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
+
+        double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
+        printf("RTT %d: %.3f ms\n", i + 1, rtt);
+        avg_rtt += rtt;
+        sleep(1);
+    }
+    avg_rtt /= 3.0;
+    close(udp_sock);
+    return avg_rtt;
+}
+*/
+
 
 
 void *download_thread(void *arg) {
