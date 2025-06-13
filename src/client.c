@@ -32,12 +32,6 @@ double medir_rtt() {
         struct timeval t1, t2;
         gettimeofday(&t1, NULL);
 
-        if (sendto(udp_sock, msg, 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 4) {
-            perror("sendto failed");
-            close(udp_sock);
-            exit(EXIT_FAILURE);
-        }
-
         // fd_set readfds;
         // FD_ZERO(&readfds);
         // FD_SET(udp_sock, &readfds);
