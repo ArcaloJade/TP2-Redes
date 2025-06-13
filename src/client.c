@@ -32,31 +32,11 @@ double medir_rtt() {
         struct timeval t1, t2;
         gettimeofday(&t1, NULL);
 
-        // fd_set readfds;
-        // FD_ZERO(&readfds);
-        // FD_SET(udp_sock, &readfds);
-
-        // struct timeval timeout;
-        // timeout.tv_sec = 10;
-        // timeout.tv_usec = 0;
-
-        // int ready = select(udp_sock + 1, &readfds, NULL, NULL, &timeout);
-
-        // if (ready == -1) {
-        //     perror("select failed");
-        //     close(udp_sock);
-        //     exit(EXIT_FAILURE);
-        // } else if (ready == 0) {
-        //     fprintf(stderr, "Intento %d: Timeout esperando respuesta del servidor\n", i + 1);
-        //     if (i < 2) {
-        //         sleep(1);  // espera 1 segundo antes del siguiente intento
-        //         continue;  // continúa con el siguiente intento
-        //     } else {
-        //         fprintf(stderr, "Error: Timeout definitivo tras 3 intentos.\n");
-        //         close(udp_sock);
-        //         exit(EXIT_FAILURE);
-        //     }
-        // }
+        if (sendto(udp_sock, msg, 4, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) != 4) {
+            perror("sendto failed");
+            close(udp_sock);
+            exit(EXIT_FAILURE);
+        }
 
         socklen_t addr_len = sizeof(serv_addr);
         ssize_t n = recvfrom(udp_sock, recv_buf, 4, 0, (struct sockaddr *)&serv_addr, &addr_len);
