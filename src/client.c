@@ -163,14 +163,15 @@ void *upload_thread(void *arg) {
     pthread_exit(NULL);
 }
 
-void query_upload_results(uint32_t test_id) {
+BW_result query_upload_results(uint32_t test_id) {
+    BW_result res = {0};
     int sockfd;
     struct sockaddr_in servaddr;
     uint8_t recv_buf[4096];
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket UDP");
-        return;
+        return res;
     }
 
     memset(&servaddr, 0, sizeof(servaddr));
@@ -183,14 +184,14 @@ void query_upload_results(uint32_t test_id) {
                (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
         perror("sendto");
         close(sockfd);
-        return;
+        return res;
     }
 
     ssize_t n = recvfrom(sockfd, recv_buf, sizeof(recv_buf)-1, 0, NULL, NULL);
     if (n < 0) {
         perror("recvfrom");
         close(sockfd);
-        return;
+        return res;
     }
     recv_buf[n] = '\0';  
 
@@ -198,11 +199,11 @@ void query_upload_results(uint32_t test_id) {
     if (ntohl(rnet)!=test_id) 
         fprintf(stderr,"ID mismatch\n");
     else {
-        BW_result res;
         int ret = unpackResultPayload(&res, recv_buf, n);
         if (ret<0) fprintf(stderr,"Error unpack: %d\n",ret);
     }
     close(sockfd);
+    return res;
 }
 
 
@@ -286,6 +287,8 @@ int main(int argc, char *argv[]) {
     do {
         test_id = (uint32_t) rand();
     } while ((test_id >> 24) == 0xFF);
+    struct timeval upload_start, upload_end;
+    gettimeofday(&upload_start, NULL);
 
     for (int i = 0; i < NUM_CONN; ++i) {
         up_infos[i].id = i;
@@ -298,19 +301,24 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < NUM_CONN; ++i) {
         pthread_join(upload_threads[i], NULL);
     }
+
+    gettimeofday(&upload_end, NULL); 
+
     pthread_join(rtt_upload_thread, NULL);
     double upld_rtt = upld_rtt_info.rtt_result;
 
+    double elapsed_upload = (upload_end.tv_sec - upload_start.tv_sec) + (upload_end.tv_usec - upload_start.tv_usec) / 1e6;
+    sleep(1);
 
-    double total_bytes_sent = 0;
+    BW_result upld_res = query_upload_results(test_id);
+
+    double total_bytes_received_by_server = 0;
     for (int i = 0; i < NUM_CONN; ++i) {
-        total_bytes_sent += up_infos[i].bytes_sent;
+        total_bytes_received_by_server += upld_res.conn_bytes[i];
+        printf("Conexión %d: Bytes = %ld\n", i + 1, upld_res.conn_bytes[i]);
     }
 
-    double upld_throughput = 8.0 * total_bytes_sent / elapsed / 1e6 * 1000000.0;
-
-    sleep(1);
-    query_upload_results(test_id);
+    double upld_throughput = (8.0 * total_bytes_received_by_server) / elapsed_upload;
 
     //-----------JSON main-----------
 
