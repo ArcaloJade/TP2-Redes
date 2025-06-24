@@ -46,7 +46,8 @@ double medir_rtt() {
         if (n != 4 || memcmp(msg, recv_buf, 4) != 0) {
             fprintf(stderr, "Error: respuesta inválida o no coincide\n");
             close(udp_sock);
-            exit(EXIT_FAILURE);
+            // exit(EXIT_FAILURE);
+            return -1;  // señal de error
         }
 
         double rtt = (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_usec - t1.tv_usec) / 1000.0;
@@ -208,8 +209,16 @@ BW_result query_upload_results(uint32_t test_id) {
 
 
 void *rtt_thread(void *arg) {
+    // rtt_thread_info *info = (rtt_thread_info *)arg;
+    // info->rtt_result = medir_rtt() / 1000.0;
+    // return NULL;
     rtt_thread_info *info = (rtt_thread_info *)arg;
-    info->rtt_result = medir_rtt() / 1000.0;
+    double res = medir_rtt();
+    if (res < 0) {
+        info->rtt_result = -1.0;
+    } else {
+        info->rtt_result = res / 1000.0;
+    }
     return NULL;
 }
 
