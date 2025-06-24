@@ -209,16 +209,8 @@ BW_result query_upload_results(uint32_t test_id) {
 
 
 void *rtt_thread(void *arg) {
-    // rtt_thread_info *info = (rtt_thread_info *)arg;
-    // info->rtt_result = medir_rtt() / 1000.0;
-    // return NULL;
     rtt_thread_info *info = (rtt_thread_info *)arg;
-    double res = medir_rtt();
-    if (res < 0) {
-        info->rtt_result = -1.0;
-    } else {
-        info->rtt_result = res / 1000.0;
-    }
+    info->rtt_result = medir_rtt() / 1000.0;
     return NULL;
 }
 
